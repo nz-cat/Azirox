@@ -320,4 +320,3 @@ print(tinhTong(1000000)) -- chay native, khong qua VM nen nhanh hon han
 - Đối số chỉ nhận `function(...) ... end` viết thẳng tại chỗ, giống `AZR_CFF` - không nhận biến đã gán sẵn hàm
 - Hàm **không được** đụng tới local/upvalue nằm ngoài nó - vì hàm được biên dịch độc lập qua vm khác nên không thấy local bên ngoài, chỉ thấy global và tham số truyền vào qua `(...)`. Đụng vào local ngoài là lỗi `attempt to ... nil value` thẳng lúc chạy, không phải lỗi build
 - Không dùng cho chỗ cần bảo mật cao - hàm thoát khỏi VM nghĩa là thoát luôn mọi lớp bảo vệ Azirox áp cho phần còn lại của script, chỉ còn 1 lớp XOR mỏng che source thô
-- Môi trường chạy phải có sẵn `loadstring` và `bit32` (executor Roblox bình thường đều có) - thiếu 1 trong 2 là hàm không tạo được lúc runtime
