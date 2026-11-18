@@ -21,6 +21,9 @@ Vài cái cần nhớ trước khi gắn:
 | [`AZR_ENCNUM(n)`](#azr_encnum) | Gọi được | Giấu số khỏi ai hóng |
 | [`AZR_OPAQUE(bool)`](#azr_opaque) | Gọi được | Làm if trông ảo khó đoán nhánh thật |
 | [`AZR_PRECHECK(fn, key)`](#azr_precheck) | Gọi được | Tự kiểm tra sai phát là châm ngòi crash |
+| [`AZR_COMPRESS(str)`](#azr_compress) | Gọi được | Nén + giấu 1 cục chuỗi dài |
+| [`AZR_CFF(fn)`](#azr_cff) | Gọi được | Băm nhỏ thân hàm thành 1 state machine rối não |
+| [`AZR_NO_VIRTUALIZE(fn)`](#AZR_NO_VIRTUALIZEfn) | Gọi được | Rút hàm khỏi VM, cho chạy native cho nhanh |
 
 ---
 
@@ -225,3 +228,96 @@ end, { 0x1234, 0x5678 })
 **Lưu ý:**
 - Viết nó thành 1 câu lệnh đứng riêng đừng ráng gán vô biến - nó không nhả giá trị gì ra để xài tiếp
 - Hàm kiểm tra (`fn`) nên là hàm vô danh viết liền tại chỗ đừng dựa dẫm thứ bên ngoài ngoài những gì thật sự cần để tính ra kết quả
+
+---
+
+## `AZR_COMPRESS(str)`
+
+Giống `AZR_ENCSTR` ở chỗ cũng giấu chuỗi, nhưng nén qua LZSS trước khi mã hoá - hợp cho mấy cục chuỗi dài (JSON cấu hình nhúng sẵn, danh sách dài, 1 đoạn Lua source nhúng làm string...) chứ chuỗi ngắn thì xài `AZR_ENCSTR` cho lẹ, nén chuỗi ngắn có khi còn phình to hơn gốc do overhead của flag-byte.
+
+**Cú pháp:**
+
+```lua
+AZR_COMPRESS("chuoi cua ban")
+```
+
+**Demo:**
+
+```lua
+local config = AZR_COMPRESS("{\"endpoint\":\"https://api.example.com\",\"retries\":5,\"timeout\":3000}")
+print(config) -- tu giai nen + giai ma, in ra dung y chang chuoi goc
+```
+
+**Lưu ý:**
+- Chuỗi phải viết thẳng tay ngay tại chỗ gọi, y chang `AZR_ENCSTR` - không truyền biến
+- Hỗ trợ full 256 giá trị byte (UTF-8, binary gì cũng được), không riêng gì ASCII
+
+---
+
+## `AZR_CFF(fn)`
+
+Băm thân 1 hàm thành dispatcher-loop (`while true do if state==... end`) + opaque predicate + vài nhánh rác chen vào - đọc code đã build thì mất luôn trình tự thực thi tuần tự ban đầu, phải tự dò từng state một
+
+Dùng cho những hàm logic nhạy cảm mà m muốn giấu luồng chạy riêng, không cần đợi build nguyên file mới có CFF (control-flow flatten vốn Azirox đã làm ở bước Minifier cho toàn bộ code, cái này cho phép áp riêng 1 hàm ngay từ source)
+
+**Cú pháp:**
+
+```lua
+AZR_CFF(function(...)
+    -- than ham binh thuong
+end)
+```
+
+**Demo:**
+
+```lua
+local tinhDiem = AZR_CFF(function(hp, armor)
+    local dmg = hp - armor
+    if dmg < 0 then
+        dmg = 0
+    end
+    return dmg * 2
+end)
+
+print(tinhDiem(100, 30))
+```
+
+Macro trả về nguyên 1 hàm (đã băm), gán vào biến/gọi liền thoải mái như hàm bình thường
+
+**Lưu ý:**
+- Đối số chỉ nhận `function(...) ... end` viết thẳng tại chỗ, không nhận biến đã gán sẵn hàm
+- Hàm càng ít statement (dưới 2 câu lệnh) thì khỏi băm, băm 1-2 dòng chẳng ăn thua gì
+
+---
+
+## `AZR_NO_VIRTUALIZE(fn)`
+
+Rút hẳn hàm m đưa vào ra khỏi VM của Azirox - hàm không bị dịch thành bytecode VM nữa mà được giấu dưới dạng mảng byte, tới lúc chạy mới tự giải mã rồi đưa thẳng qua `loadstring` của chính môi trường (executor) để biên dịch native. Từ đó hàm chạy nhanh hơn hẳn vì không còn tốn chi phí dispatch từng opcode qua VM phần mềm nữa - hợp cho vòng lặp render, tính toán nặng... chỗ nào cần tốc độ hơn là cần bưng kín
+
+**Cú pháp:**
+
+```lua
+local f = AZR_NO_VIRTUALIZE(function(...) end)
+AZR_NO_VIRTUALIZE(function(...) end)()
+someFunction(AZR_NO_VIRTUALIZE(function(...) end))
+```
+
+**Demo:**
+
+```lua
+local tinhTong = AZR_NO_VIRTUALIZE(function(n)
+    local s = 0
+    for i = 1, n do
+        s = s + i * i
+    end
+    return s
+end)
+
+print(tinhTong(1000000)) -- chay native, khong qua VM nen nhanh hon han
+```
+
+**Lưu ý:**
+- Đối số chỉ nhận `function(...) ... end` viết thẳng tại chỗ, giống `AZR_CFF` - không nhận biến đã gán sẵn hàm
+- Hàm **không được** đụng tới local/upvalue nằm ngoài nó - vì hàm được biên dịch độc lập qua vm khác nên không thấy local bên ngoài, chỉ thấy global và tham số truyền vào qua `(...)`. Đụng vào local ngoài là lỗi `attempt to ... nil value` thẳng lúc chạy, không phải lỗi build
+- Không dùng cho chỗ cần bảo mật cao - hàm thoát khỏi VM nghĩa là thoát luôn mọi lớp bảo vệ Azirox áp cho phần còn lại của script, chỉ còn 1 lớp XOR mỏng che source thô
+- Môi trường chạy phải có sẵn `loadstring` và `bit32` (executor Roblox bình thường đều có) - thiếu 1 trong 2 là hàm không tạo được lúc runtime
